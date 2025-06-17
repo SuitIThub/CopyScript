@@ -1,4 +1,11 @@
-# File Manager with Advanced Rule-based Renaming
+# FileFlow
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Pillow](https://img.shields.io/badge/Pillow-9.0.0+-green.svg)](https://python-pillow.org/)
+[![Watchdog](https://img.shields.io/badge/Watchdog-3.0.0-orange.svg)](https://pypi.org/project/watchdog/)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey.svg)](https://github.com/yourusername/FileFlow)
+
+## File Manager with Advanced Rule-based Renaming
 
 A Python GUI application that monitors a source folder for newly created files and copies them to a destination folder with sophisticated rule-based renaming patterns. Features a modern interface with thumbnails, multiple viewing modes, and comprehensive file management capabilities.
 
