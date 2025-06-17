@@ -1,0 +1,27 @@
+{
+  "source_folder": "D:/Honey Select/UserData/cap",
+  "dest_folder": "M:/MTS Project/Mind the School/game/images/events/truth_or_dare/truth_or_dare_4/test",
+  "file_formats": ".png",
+  "naming_pattern": "truth_or_dare_4_card {girl} 2 {counter}",
+  "rules": [
+    {
+      "type": "counter",
+      "tag_name": "counter",
+      "start_value": 0,
+      "increment": 1,
+      "step": 1,
+      "max_value": 2
+    },
+    {
+      "type": "list",
+      "tag_name": "girl",
+      "values": [
+        "ikushi_ito",
+        "lin_kato",
+        "miwa_igarashi",
+        "ishimaru_maki"
+      ],
+      "step": 2
+    }
+  ]
+}
