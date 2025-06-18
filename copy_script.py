@@ -2169,9 +2169,8 @@ class FileManagerApp:
                 if isinstance(rule, BatchRule):
                     rule.increment_batch()
             
-            # Clear tracked files and selection
+            # Clear tracked files and update display
             self.tracked_files.clear()
-            self.selected_files.clear()
             self.update_files_display()
             self.update_rules_display()
             
