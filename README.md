@@ -18,10 +18,15 @@ A Python GUI application that monitors a source folder for newly created files a
 - **Visual Feedback**: Clear status indicators and tooltips throughout the interface
 
 ### File Management
+- **Multiple File Input Methods**: 
+  - Real-time monitoring of source folder for new files
+  - Manual file selection via "Add Files" button with multi-select capability
+  - Drag and drop files directly onto the tracking area
 - **Thumbnail Previews**: Automatic thumbnail generation for images with fallbacks for other file types
-- **Multiple View Modes**: Switch between list view and grid view for tracked files
+- **Multiple View Modes**: Switch between list view and grid view for tracked files (preference persists between sessions)
 - **File Reordering**: Move files up/down in the processing order
 - **Individual File Removal**: Remove specific files from tracking list
+- **Smart File Filtering**: All input methods respect the current file format filter settings
 - **Conflict Detection**: Warns about duplicate filenames and existing files in destination
 
 ### Rule System
@@ -47,14 +52,16 @@ Three powerful rule types with advanced controls:
 ### User Interface
 - **Intuitive Tooltips**: Comprehensive help text for all controls
 - **Visual Path Validation**: ✅/❌ indicators for folder paths with auto-create buttons
-- **Smart Button States**: Context-aware enabling/disabling of controls
+- **Smart Button States**: Context-aware enabling/disabling of controls during operations
 - **Real-time Preview**: See generated filenames before copying
 - **Progress Feedback**: Clear status messages and conflict warnings
+- **Drag and Drop Support**: Visual feedback when dragging files over the tracking area
+- **Persistent Preferences**: View mode and all settings automatically saved between sessions
 
 ### Settings Management
 - **Auto-save**: Settings automatically saved on application close
 - **Import/Export**: Share configurations between instances
-- **Persistent State**: Batch counters and settings maintained across sessions
+- **Persistent State**: Batch counters, view mode preferences, and all settings maintained across sessions
 
 ## Installation
 
@@ -79,7 +86,8 @@ Three powerful rule types with advanced controls:
 
 3. **Set File Formats** (optional):
    - Enter extensions like `.jpg;.png;.gif` or use `*` for all files
-   - Filters which files get tracked automatically
+   - Filters which files get tracked from all input methods
+   - Field is disabled during active tracking to prevent conflicts
 
 ### Creating Naming Rules
 
@@ -95,19 +103,21 @@ Three powerful rule types with advanced controls:
 
 ### File Processing
 
-6. **Start Tracking**:
-   - Click "Start Tracking" to begin monitoring
-   - Only files created after starting are tracked
-   - View tracked files in list or grid mode with thumbnails
-
+6. **Add Files to Track**:
+   Multiple ways to add files:
+   - **Auto-Tracking**: Click "Start Tracking" to monitor source folder for new files
+   - **Manual Selection**: Click "Add Files" to select multiple files from any location
+   - **Drag and Drop**: Drag files directly from file explorer onto the tracking area
+   
 7. **Manage Tracked Files**:
-   - Reorder files using up/down arrows
+   - View files in list or grid mode with thumbnails (your preference is remembered)
+   - Reorder files using up/down arrows (affects rule numbering)
    - Remove individual files with delete buttons
    - Preview generated names in real-time
 
 8. **Copy & Rename**:
    - Review any conflicts or warnings
-   - Choose how to handle existing files (overwrite, skip, or cancel)
+   - Choose how to handle existing files (overwrite, rename with numbers, skip, or cancel)
    - Files are processed and tracked list is cleared
 
 ## Rule Examples
@@ -171,6 +181,7 @@ The application saves settings to `file_manager_settings.json`:
   "dest_folder": "/path/to/destination", 
   "file_formats": ".jpg;.png",
   "naming_pattern": "photo_{batch}_{counter}",
+  "view_mode": "list",
   "rules": [
     {
       "type": "counter",
@@ -189,15 +200,17 @@ The application saves settings to `file_manager_settings.json`:
 - `tkinter`: GUI framework (built into Python) - [docs.python.org/3/library/tkinter.html](https://docs.python.org/3/library/tkinter.html)
 - `watchdog`: File system monitoring - [pypi.org/project/watchdog](https://pypi.org/project/watchdog/)
 - `Pillow`: Image processing and thumbnail generation - [pillow.readthedocs.io](https://pillow.readthedocs.io/)
+- `tkinterdnd2`: Drag and drop functionality - [pypi.org/project/tkinterdnd2](https://pypi.org/project/tkinterdnd2/)
 - `pathlib`: Modern path handling - [docs.python.org/3/library/pathlib.html](https://docs.python.org/3/library/pathlib.html)
 
 ## Troubleshooting
 
 ### Common Issues
-- **Files not tracking**: Ensure source folder is valid and tracking is started
+- **Files not tracking**: Ensure source folder is valid and tracking is started, or use "Add Files" button
 - **Permission errors**: Check read access to source and write access to destination
 - **Thumbnails not generating**: May indicate locked or corrupted image files
 - **Rules not working**: Verify tag names in pattern match rule tag names exactly
+- **File format field disabled**: This is normal during tracking - stop tracking to modify filter
 
 ### Performance Notes
 - Thumbnails are cached for better performance
@@ -215,8 +228,12 @@ README.md                       # This documentation
 
 ## Tips
 
+- **Multiple Input Methods**: Combine auto-tracking, manual selection, and drag-and-drop as needed
 - **File Extensions**: Original extensions are always preserved
 - **Batch Persistence**: Batch counters maintain state between sessions
 - **Rule Order**: Rules are processed in the order they appear in your pattern
 - **Preview Names**: Use the preview to verify naming before copying
+- **View Preferences**: Your choice of list/grid view is remembered between sessions
+- **File Order**: Manual file ordering affects counter rule numbering
+- **Format Filtering**: All input methods respect the file format filter
 - **Backup Important Files**: Always test with non-critical files first 

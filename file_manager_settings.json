@@ -1,8 +1,9 @@
 {
   "source_folder": "D:/Honey Select/UserData/cap",
-  "dest_folder": "M:/MTS Project/Mind the School/game/images/events/truth_or_dare/truth_or_dare_4/test",
+  "dest_folder": "M:/MTS Project/Mind the School/game/images/events/truth_or_dare/truth_or_dare_4/truth_1",
   "file_formats": ".png",
-  "naming_pattern": "truth_or_dare_4_card {girl} 2 {counter}",
+  "naming_pattern": "truth_or_dare_4_truth_1 {level} {counter}",
+  "view_mode": "list",
   "rules": [
     {
       "type": "counter",
@@ -10,7 +11,7 @@
       "start_value": 0,
       "increment": 1,
       "step": 1,
-      "max_value": 2
+      "max_value": 8
     },
     {
       "type": "list",
@@ -22,6 +23,14 @@
         "ishimaru_maki"
       ],
       "step": 2
+    },
+    {
+      "type": "counter",
+      "tag_name": "level",
+      "start_value": 2,
+      "increment": 1,
+      "step": 9,
+      "max_value": null
     }
   ]
 }

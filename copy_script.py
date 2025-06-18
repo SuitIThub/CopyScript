@@ -277,7 +277,30 @@ class FileManagerApp:
     """Main application class"""
     
     def __init__(self):
-        self.root = tk.Tk()
+        # Force working directory to script location for tkinterdnd2 compatibility
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        original_cwd = os.getcwd()
+        
+        # Always change to script directory for tkinterdnd2
+        os.chdir(script_dir)
+        
+        # Use tkinterdnd2 for drag and drop support
+        try:
+            import tkinterdnd2 as tkdnd
+            self.root = tkdnd.Tk()
+            self.drag_drop_available = True
+            print(f"Drag and drop initialized successfully from: {script_dir}")
+            
+        except Exception as e:
+            print(f"Drag and drop initialization failed: {e}")
+            # Fall back to regular Tk if tkinterdnd2 fails to initialize
+            self.root = tk.Tk()
+            self.drag_drop_available = False
+        
+        # Store for potential restoration (but don't restore yet - tkinterdnd2 needs the directory)
+        self.original_cwd = original_cwd
+        self.script_dir = script_dir
+        
         self.root.title("File Manager with Rule-based Renaming")
         self.root.geometry("900x700")
         
@@ -309,8 +332,7 @@ class FileManagerApp:
         self.clear_tracked_btn = None
         
         # Settings file - ensure it's in the same directory as the script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.settings_file = os.path.join(script_dir, "file_manager_settings.json")
+        self.settings_file = os.path.join(self.script_dir, "file_manager_settings.json")
         
         self.create_ui()
         self.load_settings()
@@ -374,9 +396,9 @@ class FileManagerApp:
         formats_label.grid(row=row, column=0, sticky=tk.W, pady=5)
         ToolTip(formats_label, "Filter which file types to track. Use '*' for all files, or specify extensions like '.jpg;.png;.gif' or patterns like '*.txt;*.doc'.")
         
-        formats_entry = ttk.Entry(main_frame, textvariable=self.file_formats, width=50)
-        formats_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), padx=5)
-        ToolTip(formats_entry, "Semicolon-separated list of file formats to track. Examples:\n• '*' = all files\n• '.jpg;.png' = only jpg and png files\n• '*.txt;*.doc' = text and document files")
+        self.formats_entry = ttk.Entry(main_frame, textvariable=self.file_formats, width=50)
+        self.formats_entry.grid(row=row, column=1, sticky=(tk.W, tk.E), padx=5)
+        ToolTip(self.formats_entry, "Semicolon-separated list of file formats to track. Examples:\n• '*' = all files\n• '.jpg;.png' = only jpg and png files\n• '*.txt;*.doc' = text and document files\n\nNote: This field is disabled while tracking is active to prevent conflicts.")
         row += 1
         
         # Naming pattern
@@ -408,6 +430,10 @@ class FileManagerApp:
         self.clear_tracked_btn = ttk.Button(button_frame, text="Clear Tracked Files", command=self.clear_tracked)
         self.clear_tracked_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(self.clear_tracked_btn, "Remove all files from the tracked files list. This does not affect the actual files, only clears the list.")
+        
+        self.add_files_btn = ttk.Button(button_frame, text="Add Files", command=self.add_files_manually)
+        self.add_files_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(self.add_files_btn, "Manually select one or more files to add to the tracked files list. Files must match the current file format filter.")
         row += 1
         
         # Tracked files section header and controls
@@ -466,8 +492,17 @@ class FileManagerApp:
         self.files_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         files_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
+        # Set up drag and drop functionality
+        self.setup_drag_and_drop()
+        
         # Add tooltip to the files canvas
-        ToolTip(self.files_canvas, "Scrollable list of tracked files with preview names. Each file has:\n• ↑↓ buttons to reorder files\n• Preview of original → renamed filename\n• ✕ button to remove individual files\n\nBackground colors indicate naming conflicts.")
+        tooltip_text = "Scrollable list of tracked files with preview names. Each file has:\n• ↑↓ buttons to reorder files\n• Preview of original → renamed filename\n• ✕ button to remove individual files"
+        if self.drag_drop_available:
+            tooltip_text += "\n• Drag and drop files here to add them to the list"
+        else:
+            tooltip_text += "\n• Use 'Add Files' button to manually add files (drag and drop not available)"
+        tooltip_text += "\n\nBackground colors indicate naming conflicts."
+        ToolTip(self.files_canvas, tooltip_text)
         
         main_frame.rowconfigure(row, weight=1)
         row += 1
@@ -600,6 +635,10 @@ class FileManagerApp:
             self.dest_browse.config(state='disabled' if is_tracking else 'normal')
         if hasattr(self, 'dest_create'):
             self.dest_create.config(state='disabled' if is_tracking else 'normal')
+        
+        # File formats field: disabled while tracking
+        if hasattr(self, 'formats_entry'):
+            self.formats_entry.config(state='disabled' if is_tracking else 'normal')
         
         # Copy & Rename Files button: enabled only if has tracked files, destination folder, and no conflicts
         has_dest = bool(self.dest_folder.get() and os.path.exists(self.dest_folder.get()))
@@ -1169,6 +1208,14 @@ class FileManagerApp:
         has_duplicate = self.has_duplicate_preview_name(index, preview_full_name)
         exists_in_dest = self.preview_exists_in_destination(preview_full_name)
         
+        # Determine background color
+        if has_duplicate:
+            bg_color = "#ffcccc"
+        elif exists_in_dest:
+            bg_color = "#ccccff"
+        else:
+            bg_color = "#f0f0f0"
+        
         if 'cell_frame' in widget_data:
             if has_duplicate:
                 widget_data['cell_frame'].configure(relief='solid', borderwidth=2, style="Duplicate.TFrame")
@@ -1176,6 +1223,10 @@ class FileManagerApp:
                 widget_data['cell_frame'].configure(relief='solid', borderwidth=2, style="Exists.TFrame")
             else:
                 widget_data['cell_frame'].configure(relief='ridge', borderwidth=2)
+        
+        # Update spacer label background color to match
+        if 'spacer_label' in widget_data:
+            widget_data['spacer_label'].config(background=bg_color)
         
         # Update button states
         if 'left_btn' in widget_data:
@@ -1319,18 +1370,22 @@ class FileManagerApp:
         has_duplicate = self.has_duplicate_preview_name(index, preview_full_name)
         exists_in_dest = self.preview_exists_in_destination(preview_full_name)
         
-        # Determine border color based on conflicts
+        # Determine background color and border style based on conflicts
         if has_duplicate:
+            bg_color = "#ffcccc"
             cell_frame.configure(relief='solid', borderwidth=2)
             cell_frame.configure(style=f"Duplicate.TFrame")
         elif exists_in_dest:
+            bg_color = "#ccccff"
             cell_frame.configure(relief='solid', borderwidth=2)
             cell_frame.configure(style=f"Exists.TFrame")
+        else:
+            bg_color = "#f0f0f0"  # Default background color
         
         # Configure styles
         style = ttk.Style()
-        style.configure("Duplicate.TFrame", background="#ffcccc", borderwidth=2)
-        style.configure("Exists.TFrame", background="#ccccff", borderwidth=2)
+        style.configure("Duplicate.TFrame", background=bg_color, borderwidth=2)
+        style.configure("Exists.TFrame", background=bg_color, borderwidth=2)
         
         grid_row = 0
         
@@ -1358,9 +1413,15 @@ class FileManagerApp:
         prev_label.grid(row=grid_row, column=0, padx=5, pady=2, sticky=(tk.W, tk.E))
         grid_row += 1
         
+        # Add a spacer row to push buttons to bottom
+        spacer_label = tk.Label(cell_frame, text="", background=bg_color)
+        spacer_label.grid(row=grid_row, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        cell_frame.rowconfigure(grid_row, weight=1)  # Make spacer row expandable
+        grid_row += 1
+        
         # Button row at the bottom with left/right arrows and delete button
         button_frame = ttk.Frame(cell_frame)
-        button_frame.grid(row=grid_row, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
+        button_frame.grid(row=grid_row, column=0, sticky=(tk.W, tk.E, tk.S), padx=5, pady=5)
         button_frame.columnconfigure(1, weight=1)  # Spacer in middle
         
         # Left button (move up in list)
@@ -1394,6 +1455,7 @@ class FileManagerApp:
             'thumb_label': thumb_label,
             'orig_label': orig_label,
             'prev_label': prev_label,
+            'spacer_label': spacer_label,
             'remove_btn': remove_btn
         }
     
@@ -1553,6 +1615,208 @@ class FileManagerApp:
         # Clear widget tracking
         self.file_widgets.clear()
         self.update_files_display()
+    
+    def add_files_manually(self):
+        """Open file dialog to manually select files to add"""
+        # Get initial directory - use source folder if set, otherwise script directory
+        initial_dir = self.source_folder.get()
+        if not initial_dir or not os.path.exists(initial_dir):
+            initial_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Open file selection dialog allowing multiple files
+        file_paths = filedialog.askopenfilenames(
+            title="Select Files to Add",
+            initialdir=initial_dir,
+            filetypes=[
+                ("All files", "*.*"),
+                ("Image files", "*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tiff;*.webp"),
+                ("Text files", "*.txt;*.doc;*.docx"),
+                ("Video files", "*.mp4;*.avi;*.mov;*.wmv;*.flv;*.mkv")
+            ]
+        )
+        
+        if file_paths:
+            added_count = 0
+            skipped_count = 0
+            
+            for file_path in file_paths:
+                if self.should_track_file(file_path):
+                    if file_path not in self.tracked_files:
+                        self.tracked_files.append(file_path)
+                        added_count += 1
+                    else:
+                        skipped_count += 1
+                else:
+                    skipped_count += 1
+            
+            if added_count > 0:
+                self.update_files_display()
+                if skipped_count > 0:
+                    self.show_status(f"Added {added_count} files, skipped {skipped_count} (already tracked or format filter)", "success")
+                else:
+                    self.show_status(f"Added {added_count} files", "success")
+            else:
+                if skipped_count > 0:
+                    self.show_status("No files added - all were already tracked or don't match format filter", "warning")
+                else:
+                    self.show_status("No files selected", "info")
+    
+    def setup_drag_and_drop(self):
+        """Set up drag and drop functionality for the files canvas"""
+        if not self.drag_drop_available:
+            print("Drag and drop not available, skipping setup")
+            return
+        
+        try:
+            # Import tkinterdnd2 for drag and drop functionality
+            import tkinterdnd2 as tkdnd
+            
+            # Enable drag and drop primarily on the canvas
+            # The canvas is the main visible area users will drop onto
+            self.files_canvas.drop_target_register(tkdnd.DND_FILES)
+            self.files_canvas.dnd_bind('<<DropEnter>>', self.on_drag_enter)
+            self.files_canvas.dnd_bind('<<DropPosition>>', self.on_drag_position)
+            self.files_canvas.dnd_bind('<<DropLeave>>', self.on_drag_leave)
+            self.files_canvas.dnd_bind('<<Drop>>', self.on_drop)
+            
+            # Also enable on the scrollable frame for when files are visible
+            self.files_scrollable_frame.drop_target_register(tkdnd.DND_FILES)
+            self.files_scrollable_frame.dnd_bind('<<DropEnter>>', self.on_drag_enter)
+            self.files_scrollable_frame.dnd_bind('<<DropPosition>>', self.on_drag_position)
+            self.files_scrollable_frame.dnd_bind('<<DropLeave>>', self.on_drag_leave)
+            self.files_scrollable_frame.dnd_bind('<<Drop>>', self.on_drop)
+            
+            print("Drag and drop setup completed successfully")
+            
+        except Exception as e:
+            print(f"Failed to set up drag and drop: {e}")
+            self.drag_drop_available = False
+            # Update tooltip to reflect the change
+            self.show_status("Drag and drop setup failed, use 'Add Files' button instead", "warning")
+    
+    def on_drag_enter(self, event):
+        """Handle drag enter event"""
+        # Change cursor or visual feedback when files are dragged over
+        try:
+            event.widget.configure(cursor="plus")
+        except:
+            pass
+        
+        # Return the action for tkinterdnd2
+        return "copy"
+    
+    def on_drag_position(self, event):
+        """Handle drag position event"""
+        # Return the action for tkinterdnd2
+        return "copy"
+    
+    def on_drag_leave(self, event):
+        """Handle drag leave event"""
+        # Reset cursor when drag leaves
+        try:
+            event.widget.configure(cursor="")
+        except:
+            pass
+        return None
+    
+    def on_drop(self, event):
+        """Handle file drop event"""
+        # Reset cursor
+        try:
+            event.widget.configure(cursor="")
+        except:
+            pass
+        
+        # Get dropped files - event.data contains the file paths
+        files = self.parse_drop_data(event.data)
+        
+        if files:
+            added_count = 0
+            skipped_count = 0
+            
+            for file_path in files:
+                # Check if it's a file (not directory)
+                if os.path.isfile(file_path):
+                    if self.should_track_file(file_path):
+                        if file_path not in self.tracked_files:
+                            self.tracked_files.append(file_path)
+                            added_count += 1
+                        else:
+                            skipped_count += 1
+                    else:
+                        skipped_count += 1
+            
+            if added_count > 0:
+                self.update_files_display()
+                if skipped_count > 0:
+                    self.show_status(f"Added {added_count} files, skipped {skipped_count} (already tracked or format filter)", "success")
+                else:
+                    self.show_status(f"Added {added_count} files via drag and drop", "success")
+            else:
+                if skipped_count > 0:
+                    self.show_status("No files added - all were already tracked or don't match format filter", "warning")
+        else:
+            self.show_status("No valid files found in drop data", "warning")
+        
+        # Return the action for tkinterdnd2
+        return "copy"
+    
+    def parse_drop_data(self, data):
+        """Parse dropped file data into file paths"""
+        files = []
+        
+        # Handle different data formats that might be received from tkinterdnd2
+        if isinstance(data, (list, tuple)):
+            # Data is already a list of file paths
+            for item in data:
+                if isinstance(item, str) and os.path.exists(item):
+                    files.append(item)
+        elif isinstance(data, str):
+            # Data is a string with file paths - handle different formats
+            # tkinterdnd2 often provides paths in braces format like: {path1} {path2}
+            if data.startswith('{') and '}' in data:
+                # Handle brace-enclosed paths
+                import re
+                paths = re.findall(r'\{([^}]+)\}', data)
+                for path in paths:
+                    path = path.strip()
+                    if path and os.path.exists(path):
+                        files.append(path)
+            else:
+                # Handle space-separated or newline-separated paths
+                # Try both space and newline separators
+                separators = ['\n', ' ']
+                for separator in separators:
+                    if separator in data:
+                        for line in data.split(separator):
+                            path = line.strip()
+                            # Remove file:// protocol if present
+                            if path.startswith('file://'):
+                                path = path[7:]
+                            # Handle URL-encoded paths (spaces as %20, etc.)
+                            try:
+                                import urllib.parse
+                                path = urllib.parse.unquote(path)
+                            except:
+                                pass
+                            
+                            if path and os.path.exists(path):
+                                files.append(path)
+                        break  # If we found files with this separator, don't try others
+                else:
+                    # Single file path
+                    path = data.strip()
+                    if path.startswith('file://'):
+                        path = path[7:]
+                    try:
+                        import urllib.parse
+                        path = urllib.parse.unquote(path)
+                    except:
+                        pass
+                    if path and os.path.exists(path):
+                        files.append(path)
+        
+        return files
     
 
     
@@ -2252,6 +2516,7 @@ class FileManagerApp:
             'dest_folder': self.dest_folder.get(),
             'file_formats': self.file_formats.get(),
             'naming_pattern': self.naming_pattern.get(),
+            'view_mode': self.view_mode.get(),
             'rules': [rule.to_dict() for rule in self.rules]
         }
         
@@ -2275,6 +2540,7 @@ class FileManagerApp:
             self.dest_folder.set(settings.get('dest_folder', ''))
             self.file_formats.set(settings.get('file_formats', '*'))
             self.naming_pattern.set(settings.get('naming_pattern', 'file_{counter}'))
+            self.view_mode.set(settings.get('view_mode', 'list'))
             
             # Load rules
             self.rules.clear()
@@ -2315,6 +2581,7 @@ class FileManagerApp:
                 'dest_folder': self.dest_folder.get(),
                 'file_formats': self.file_formats.get(),
                 'naming_pattern': self.naming_pattern.get(),
+                'view_mode': self.view_mode.get(),
                 'rules': [rule.to_dict() for rule in self.rules]
             }
             
@@ -2341,6 +2608,7 @@ class FileManagerApp:
                 self.dest_folder.set(settings.get('dest_folder', ''))
                 self.file_formats.set(settings.get('file_formats', '*'))
                 self.naming_pattern.set(settings.get('naming_pattern', 'file_{counter}'))
+                self.view_mode.set(settings.get('view_mode', 'list'))
                 
                 # Load rules
                 self.rules.clear()
