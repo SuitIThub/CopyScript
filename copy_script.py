@@ -492,6 +492,9 @@ class FileManagerApp:
         self.files_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         files_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
+        # Set up mouse wheel scrolling for files
+        self.setup_mouse_wheel_scrolling(self.files_canvas, self.files_scrollable_frame)
+        
         # Set up drag and drop functionality
         self.setup_drag_and_drop()
         
@@ -539,6 +542,9 @@ class FileManagerApp:
         
         self.rules_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         rules_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        
+        # Set up mouse wheel scrolling for rules
+        self.setup_mouse_wheel_scrolling(self.rules_canvas, self.rules_scrollable_frame)
         
         rules_container.rowconfigure(0, weight=1)
         
@@ -918,11 +924,23 @@ class FileManagerApp:
         # Detect what changed compared to last state
         changes = self._detect_file_changes()
         
+        # Check if view mode changed to preserve scroll position
+        view_mode_changed = changes.get('view_mode_changed', False)
+        
+        # Preserve scroll position if view mode is changing
+        saved_scroll_position = None
+        if view_mode_changed:
+            saved_scroll_position = self._get_relative_scroll_position(self.files_canvas)
+        
         # Apply incremental updates
         if changes['full_rebuild_needed']:
             self._full_rebuild_files()
         else:
             self._incremental_update_files(changes)
+        
+        # Restore relative scroll position if view mode changed
+        if view_mode_changed and saved_scroll_position is not None:
+            self._restore_relative_scroll_position(self.files_canvas, saved_scroll_position)
         
         # Update last known state
         self.last_files_state = self._get_current_files_state()
@@ -1048,14 +1066,15 @@ class FileManagerApp:
         last_state = self.last_files_state
         
         # Check if view mode changed (requires full rebuild)
-        view_mode_changed = (last_state and current_state and 
-                           last_state[0].get('view_mode') != current_state[0].get('view_mode'))
+        view_mode_changed = False
+        if last_state and current_state and len(last_state) > 0 and len(current_state) > 0:
+            view_mode_changed = last_state[0].get('view_mode') != current_state[0].get('view_mode')
         
         # Check if widget count is completely wrong (requires full rebuild)
         widget_count_mismatch = len(self.file_widgets) > len(self.tracked_files)
         
         if view_mode_changed or widget_count_mismatch:
-            return {'full_rebuild_needed': True}
+            return {'full_rebuild_needed': True, 'view_mode_changed': view_mode_changed}
         
         # Handle file additions (incremental)
         files_added = len(current_state) > len(last_state)
@@ -1063,7 +1082,7 @@ class FileManagerApp:
         
         if files_removed:
             # Files were removed - need full rebuild to handle index changes
-            return {'full_rebuild_needed': True}
+            return {'full_rebuild_needed': True, 'view_mode_changed': False}
         
         # Find specific changes
         updated_indices = []
@@ -1087,6 +1106,7 @@ class FileManagerApp:
         
         return {
             'full_rebuild_needed': False,
+            'view_mode_changed': False,
             'updated_indices': updated_indices,
             'new_indices': new_indices
         }
@@ -1127,7 +1147,8 @@ class FileManagerApp:
                     self._update_list_item(index)
         
         # Add new items (process in reverse order for better performance)
-        for index in reversed(changes['new_indices']):
+        new_indices = changes['new_indices']
+        for index in reversed(new_indices):
             file_path = self.tracked_files[index]
             if self.view_mode.get() == "grid":
                 # Calculate grid position for new item
@@ -1138,6 +1159,59 @@ class FileManagerApp:
                 self.add_file_to_grid_display(file_path, index, row, col, max_width)
             else:
                 self.add_file_to_list_display(file_path, index)
+        
+        # Auto-scroll to show the newest file if any were added
+        if new_indices:
+            self.scroll_to_newest_file(max(new_indices))
+    
+    def scroll_to_newest_file(self, file_index):
+        """Scroll the files view to show the newly added file"""
+        # Schedule the scroll after the UI has updated
+        self.root.after(100, lambda: self._perform_scroll_to_file(file_index))
+    
+    def _perform_scroll_to_file(self, file_index):
+        """Actually perform the scroll to show the specified file"""
+        try:
+            # Update the scroll region first
+            self.files_canvas.configure(scrollregion=self.files_canvas.bbox("all"))
+            
+            # Check if we have a widget for this file index
+            if file_index in self.file_widgets:
+                widget_data = self.file_widgets[file_index]
+                
+                # Get the main widget for this file
+                main_widget = None
+                if 'frame' in widget_data:
+                    main_widget = widget_data['frame']
+                elif 'cell_frame' in widget_data:
+                    main_widget = widget_data['cell_frame']
+                
+                if main_widget and main_widget.winfo_exists():
+                    # Get the widget's position relative to the scrollable frame
+                    widget_y = main_widget.winfo_y()
+                    widget_height = main_widget.winfo_height()
+                    
+                    # Get the scrollable frame's total height
+                    frame_height = self.files_scrollable_frame.winfo_reqheight()
+                    
+                    # Get the canvas viewport height
+                    canvas_height = self.files_canvas.winfo_height()
+                    
+                    if frame_height > canvas_height:
+                        # Calculate the position to scroll to (show the widget at the bottom of the view)
+                        # This ensures the new file is visible
+                        target_y = widget_y + widget_height - canvas_height + 20  # 20px padding
+                        target_y = max(0, target_y)  # Don't scroll past the top
+                        
+                        # Convert to fraction of total scrollable area
+                        scroll_fraction = target_y / (frame_height - canvas_height)
+                        scroll_fraction = min(1.0, max(0.0, scroll_fraction))  # Clamp to [0, 1]
+                        
+                        # Scroll to show the new file
+                        self.files_canvas.yview_moveto(scroll_fraction)
+        except Exception as e:
+            # Silently handle any scrolling errors
+            pass
     
     def _update_list_item(self, index):
         """Update a specific list item without rebuilding"""
@@ -1349,6 +1423,9 @@ class FileManagerApp:
             'file_label': file_label,
             'remove_btn': remove_btn
         }
+        
+        # Bind scroll events to the new widgets immediately
+        self._bind_scroll_to_new_widget(file_frame)
     
     def add_file_to_grid_display(self, file_path, index, row, col, cell_width):
         """Add a file to the grid display"""
@@ -1458,6 +1535,9 @@ class FileManagerApp:
             'spacer_label': spacer_label,
             'remove_btn': remove_btn
         }
+        
+        # Bind scroll events to the new widgets immediately
+        self._bind_scroll_to_new_widget(cell_frame)
     
     def move_file_up(self, index):
         """Move a file up in the list"""
@@ -1660,6 +1740,199 @@ class FileManagerApp:
                     self.show_status("No files added - all were already tracked or don't match format filter", "warning")
                 else:
                     self.show_status("No files selected", "info")
+    
+    def setup_mouse_wheel_scrolling(self, canvas, scrollable_frame=None):
+        """Set up mouse wheel scrolling for a canvas widget"""
+        def on_mousewheel(event):
+            # Check if there's content to scroll
+            if canvas.winfo_exists():
+                # Get current scroll region
+                scroll_region = canvas.cget("scrollregion")
+                if scroll_region and scroll_region != "0 0 0 0":
+                    # Calculate scroll amount (negative for natural scrolling)
+                    delta = -1 * (event.delta / 120) if hasattr(event, 'delta') else -1 * event.num
+                    canvas.yview_scroll(int(delta), "units")
+        
+        def on_shift_mousewheel(event):
+            # Horizontal scrolling with Shift+wheel (if needed in future)
+            if canvas.winfo_exists():
+                scroll_region = canvas.cget("scrollregion")
+                if scroll_region and scroll_region != "0 0 0 0":
+                    delta = -1 * (event.delta / 120) if hasattr(event, 'delta') else -1 * event.num
+                    canvas.xview_scroll(int(delta), "units")
+        
+        # Bind mouse wheel events for different platforms to the canvas
+        # Windows and MacOS
+        canvas.bind("<MouseWheel>", on_mousewheel)
+        canvas.bind("<Shift-MouseWheel>", on_shift_mousewheel)
+        
+        # Linux
+        canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+        canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+        canvas.bind("<Shift-Button-4>", lambda e: canvas.xview_scroll(-1, "units"))
+        canvas.bind("<Shift-Button-5>", lambda e: canvas.xview_scroll(1, "units"))
+        
+        # Store the canvas reference and scroll functions for use in child widget binding
+        scroll_data = {
+            'canvas': canvas,
+            'on_mousewheel': on_mousewheel,
+            'on_shift_mousewheel': on_shift_mousewheel
+        }
+        
+        # Also bind to the provided scrollable frame for better UX
+        if scrollable_frame:
+            # Store scroll data as an attribute of the scrollable frame for easy access
+            scrollable_frame._scroll_data = scroll_data
+            
+            # Bind to the scrollable frame directly
+            self._bind_scroll_events(scrollable_frame, scroll_data)
+            
+            # Set up a mechanism to automatically bind scroll events to new child widgets
+            self._setup_auto_scroll_binding(scrollable_frame, scroll_data)
+    
+    def _bind_scroll_events(self, widget, scroll_data):
+        """Bind scroll events to a specific widget"""
+        canvas = scroll_data['canvas']
+        on_mousewheel = scroll_data['on_mousewheel']
+        on_shift_mousewheel = scroll_data['on_shift_mousewheel']
+        
+        try:
+            # Skip binding to Entry and Text widgets to preserve their normal behavior
+            if isinstance(widget, (tk.Entry, ttk.Entry, tk.Text)):
+                return
+            
+            # Check if widget exists and can be bound to
+            if not widget.winfo_exists():
+                return
+            
+            # Bind mouse wheel events
+            widget.bind("<MouseWheel>", on_mousewheel)
+            widget.bind("<Shift-MouseWheel>", on_shift_mousewheel)
+            
+            # Linux scroll events
+            widget.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+            widget.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+            widget.bind("<Shift-Button-4>", lambda e: canvas.xview_scroll(-1, "units"))
+            widget.bind("<Shift-Button-5>", lambda e: canvas.xview_scroll(1, "units"))
+            
+        except Exception:
+            # Silently handle any binding errors
+            pass
+    
+    def _setup_auto_scroll_binding(self, scrollable_frame, scroll_data):
+        """Set up automatic binding of scroll events to new child widgets"""
+        def bind_to_all_children():
+            """Recursively bind scroll events to all current children"""
+            try:
+                self._recursive_bind_children(scrollable_frame, scroll_data)
+            except Exception:
+                pass
+        
+        # Initial binding after a short delay
+        self.root.after(100, bind_to_all_children)
+        
+        # Set up periodic re-binding to catch new widgets
+        def periodic_rebind():
+            bind_to_all_children()
+            # Schedule next rebind
+            self.root.after(1000, periodic_rebind)  # Check every second
+        
+        # Start periodic rebinding
+        self.root.after(1000, periodic_rebind)
+    
+    def _recursive_bind_children(self, widget, scroll_data):
+        """Recursively bind scroll events to all child widgets"""
+        try:
+            # First bind to the widget itself
+            self._bind_scroll_events(widget, scroll_data)
+            
+            # Get all children of this widget
+            children = widget.winfo_children()
+            
+            for child in children:
+                # Bind scroll events to this child
+                self._bind_scroll_events(child, scroll_data)
+                
+                # Recursively process grandchildren
+                self._recursive_bind_children(child, scroll_data)
+                
+        except Exception:
+            # Silently handle any errors during recursive binding
+            pass
+    
+    def _bind_scroll_to_new_widget(self, widget):
+        """Bind scroll events to a newly created widget and its children"""
+        # Determine which scroll data to use based on the widget's ancestry
+        scroll_data = None
+        
+        # Check if this widget is a descendant of the files scrollable frame
+        if hasattr(self, 'files_scrollable_frame') and self._is_descendant_of(widget, self.files_scrollable_frame):
+            scroll_data = getattr(self.files_scrollable_frame, '_scroll_data', None)
+        
+        # Check if this widget is a descendant of the rules scrollable frame
+        elif hasattr(self, 'rules_scrollable_frame') and self._is_descendant_of(widget, self.rules_scrollable_frame):
+            scroll_data = getattr(self.rules_scrollable_frame, '_scroll_data', None)
+        
+        # If we found scroll data, bind the events
+        if scroll_data:
+            self._recursive_bind_children(widget, scroll_data)
+    
+    def _is_descendant_of(self, widget, ancestor):
+        """Check if widget is a descendant of ancestor widget"""
+        try:
+            current = widget
+            while current:
+                if current == ancestor:
+                    return True
+                current = current.master
+            return False
+        except Exception:
+            return False
+    
+    def _get_relative_scroll_position(self, canvas):
+        """Get the current relative scroll position (0.0 to 1.0) of a canvas"""
+        try:
+            # Get the current view position
+            view_top, view_bottom = canvas.yview()
+            
+            # Calculate the relative position (0.0 = top, 1.0 = bottom)
+            if view_bottom - view_top >= 1.0:
+                # Content fits entirely in view, return 0.0 (top)
+                return 0.0
+            else:
+                # Calculate relative position based on the top of the view
+                return view_top
+        except Exception:
+            return 0.0
+    
+    def _restore_relative_scroll_position(self, canvas, relative_position):
+        """Restore a relative scroll position (0.0 to 1.0) to a canvas"""
+        try:
+            # Schedule the scroll restoration after UI has updated
+            self.root.after(100, lambda: self._perform_scroll_restoration(canvas, relative_position))
+        except Exception:
+            # Silently handle any errors
+            pass
+    
+    def _perform_scroll_restoration(self, canvas, relative_position):
+        """Actually perform the scroll restoration"""
+        try:
+            # Update the scroll region first to ensure accurate positioning
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            
+            # Get the current view bounds to check if content is scrollable
+            view_top, view_bottom = canvas.yview()
+            
+            # Only scroll if there's content that extends beyond the view
+            if view_bottom - view_top < 1.0:
+                # Clamp the relative position to valid range
+                relative_position = max(0.0, min(1.0, relative_position))
+                
+                # Apply the relative scroll position
+                canvas.yview_moveto(relative_position)
+        except Exception:
+            # Silently handle any errors
+            pass
     
     def setup_drag_and_drop(self):
         """Set up drag and drop functionality for the files canvas"""
@@ -2089,9 +2362,59 @@ class FileManagerApp:
                 self._update_rule_item(index)
         
         # Add new items (process in reverse order for better performance)
-        for index in reversed(changes['new_indices']):
+        new_indices = changes['new_indices']
+        for index in reversed(new_indices):
             rule = self.rules[index]
             self.add_rule_to_display(rule, index)
+        
+        # Auto-scroll to show the newest rule if any were added
+        if new_indices:
+            self.scroll_to_newest_rule(max(new_indices))
+    
+    def scroll_to_newest_rule(self, rule_index):
+        """Scroll the rules view to show the newly added rule"""
+        # Schedule the scroll after the UI has updated
+        self.root.after(100, lambda: self._perform_scroll_to_rule(rule_index))
+    
+    def _perform_scroll_to_rule(self, rule_index):
+        """Actually perform the scroll to show the specified rule"""
+        try:
+            # Update the scroll region first
+            self.rules_canvas.configure(scrollregion=self.rules_canvas.bbox("all"))
+            
+            # Check if we have a widget for this rule index
+            if rule_index in self.rule_widgets:
+                widget_data = self.rule_widgets[rule_index]
+                
+                # Get the main widget for this rule
+                main_widget = widget_data.get('frame')
+                
+                if main_widget and main_widget.winfo_exists():
+                    # Get the widget's position relative to the scrollable frame
+                    widget_y = main_widget.winfo_y()
+                    widget_height = main_widget.winfo_height()
+                    
+                    # Get the scrollable frame's total height
+                    frame_height = self.rules_scrollable_frame.winfo_reqheight()
+                    
+                    # Get the canvas viewport height
+                    canvas_height = self.rules_canvas.winfo_height()
+                    
+                    if frame_height > canvas_height:
+                        # Calculate the position to scroll to (show the widget at the bottom of the view)
+                        # This ensures the new rule is visible
+                        target_y = widget_y + widget_height - canvas_height + 20  # 20px padding
+                        target_y = max(0, target_y)  # Don't scroll past the top
+                        
+                        # Convert to fraction of total scrollable area
+                        scroll_fraction = target_y / (frame_height - canvas_height)
+                        scroll_fraction = min(1.0, max(0.0, scroll_fraction))  # Clamp to [0, 1]
+                        
+                        # Scroll to show the new rule
+                        self.rules_canvas.yview_moveto(scroll_fraction)
+        except Exception as e:
+            # Silently handle any scrolling errors
+            pass
     
     def _update_rule_item(self, index):
         """Update a specific rule item without rebuilding"""
@@ -2269,6 +2592,9 @@ class FileManagerApp:
         widget_storage.update(rule_specific_vars)
         
         self.rule_widgets[index] = widget_storage
+        
+        # Bind scroll events to the new widgets immediately
+        self._bind_scroll_to_new_widget(rule_frame)
     
     def add_counter_fields(self, parent, rule, index, start_col):
         """Add counter rule specific fields"""

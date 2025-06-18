@@ -3,7 +3,7 @@
   "dest_folder": "M:/MTS Project/Mind the School/game/images/events/truth_or_dare/truth_or_dare_4/truth_1",
   "file_formats": ".png",
   "naming_pattern": "truth_or_dare_4_truth_1 {level} {counter}",
-  "view_mode": "list",
+  "view_mode": "grid",
   "rules": [
     {
       "type": "counter",
